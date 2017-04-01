@@ -1,0 +1,15 @@
+{
+    "main": "index.html",
+	"name": "pdftool",
+    "version": "0.0.1",
+    "window": {
+        "title": "pdf签名坐标",
+        "toolbar": false,
+        "width": 800,
+        "height": 800,
+        "position":"center",
+        "always-on-top":false,
+        "frame":true,
+        "transparent":false
+    }
+}

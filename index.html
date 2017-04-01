@@ -1,0 +1,245 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+	<meta charset="UTF-8">
+	<link rel="stylesheet" href="css/style.css">
+	<title>pdftool</title>
+	<script src="js/pdf.min.js"></script>
+	<script src="js/pdf.worker.min.js"></script>
+</head>
+<body>
+	<div id="container">
+		<div  class="tooltip">
+			<div id="droparea"><span>拖动PDF到此处</span></div>
+			<div class="pdfviewer-toolbar">
+				<button onclick="zoomIn()"> + </button>
+				<span id="zoom">---%</span>
+				<button onclick="zoomOut()"> - </button>
+				<button onclick="previousPage()">上一页</button>
+				<button onclick="nextPage()">下一页</button>
+				<span id="currentPage">--</span> / 
+				<span id="pages">--</span>
+				<input type="text" id="json" style="padding: 4px; border: none;display: none;">
+				<button onclick="copyCoord()" style="display: none;">复制坐标</button>
+				<input type="text" id="filename" placeholder="文件名" style="padding: 4px; border: none;">
+				<button onclick="download()">下载坐标</button>
+			</div>
+		</div>
+
+		<div id="pdf_container">
+			<div class="pdfviewer-container">
+				<div id="drawarea">
+					<canvas id="pdf_canvas"></canvas>
+					<div id="signmark"></div>
+				</div>
+			</div>
+		</div>
+	</div>
+	<div id="info"></div>
+	<a id="download_link" href="" download="" style="display: none;"></a>
+</body>
+<script src="js/pdfviewer.js"></script>
+<script>
+	var fileReader = new FileReader(),
+		fileResult = null,
+		info_timer = null,
+		json = null;
+
+	// 用到的元素
+	var droparea = document.getElementById('droparea'),
+		signmark = document.getElementById('signmark'),
+		drawarea = document.getElementById('drawarea'),
+		elmcoord = document.getElementById('json'),
+		elminfo = document.getElementById('info'),
+		elmfilename = document.getElementById('filename');
+		download_link = document.getElementById('download_link');
+
+	// 坐标变量
+	var startx = null,
+		starty = null,
+		endx = null,
+		endy = null,
+		mouseDown = false;
+
+	// 文件加载完成事件
+	fileReader.onload = function (evt) {
+		fileResult = evt.target.result;
+
+		load(atob(fileResult.substr(fileResult.indexOf('base64,')+7)));
+	};
+
+	// 下载json文件
+	var download = function () {
+		if(json === null){
+			info("请将PDF文件拖动到虚线框内，并绘制签名区域");
+			return;
+		}
+
+		var blob = new Blob([json], {type: "text/json"}),
+			filename = elmfilename.value;
+
+		if(filename === ''){
+			info('请输入文件名');
+			return;
+		}
+
+		if(filename.indexOf('.') === -1){
+			filename += '.json';
+		}
+
+		// IE特殊处理
+		if(navigator.msSaveBlob){
+			window.navigator.msSaveBlob(blob, filename);
+		} else {
+			var domString = URL.createObjectURL(blob);
+			download_link.href = domString;
+			download_link.setAttribute('download', filename);
+			download_link.click();
+			URL.revokeObjectURL(domString);
+		}
+	};
+
+	// 生成签名坐标
+	var generateCoord = function () {
+		var obj = {};
+
+		obj.signPage = currentPage;
+		// 计算起始点 x 坐标
+		if(endx > startx)
+			obj.pointX = startx / canvas.clientWidth;
+		else
+			obj.pointX = endx / canvas.clientWidth;
+		// 计算起始点 y 坐标
+		if(endy > starty)
+			obj.pointY = starty / canvas.clientHeight;
+		else
+			obj.pointY = endy / canvas.clientHeight;
+
+		obj.width = Math.abs(endx - startx) / canvas.clientWidth;
+		obj.height = Math.abs(endy - starty) / canvas.clientHeight;
+
+		json = JSON.stringify(obj);
+		// elmcoord.value = json;
+	};
+
+	// 显示提示信息
+	var info = function (text) {
+		clearTimeout(info_timer);
+
+		elminfo.innerHTML = text;
+		elminfo.classList.add('show');
+
+		info_timer = setTimeout(function () {
+			elminfo.classList.remove('show');
+		}, 4000);
+	};
+
+	// // 复制json字符串到剪贴板
+	// var copyCoord = function () {
+	// 	elmcoord.select();
+	// 	document.execCommand('copy');
+	// 	info("成功复制到剪贴板");
+	// };
+
+	// 拖动处理程序
+	var dragHandler = function (evt) {
+		evt.preventDefault();
+		if(evt.type === 'dragenter'){
+			droparea.classList.add('tooltip-hover');
+		} else if(evt.type === "drop"){
+			// 多次拖入pdf，设置json为 null
+			json = null;
+
+			file = evt.dataTransfer.files[0];
+			if(file.type !== 'application/pdf'){
+				info("不是标准的PDF文档");
+				return;
+			}
+
+			elmfilename.value = file.name.substr(0, file.name.lastIndexOf('.'));
+
+			fileReader.readAsDataURL(file);
+
+			droparea.classList.remove('tooltip-hover');
+		} else if(evt.type === "dragleave"){
+			droparea.classList.remove('tooltip-hover');
+		}
+	};
+
+	// 绘制签名区域
+	var drawSignArea = function (startx, starty, endx, endy) {
+		signmark.style.visibility = 'visible';
+		if(endy > starty)
+			signmark.style.top = starty + "px";
+		else
+			signmark.style.top = endy + "px";
+
+		if(endx > startx)
+			signmark.style.left = startx + "px";
+		else
+			signmark.style.left = endx + "px";
+
+		signmark.style.width = Math.abs(endx - startx) + "px";
+		signmark.style.height = Math.abs(endy - starty) + "px";
+	};
+
+	// 清除签名区域
+	var clearSign = function () {
+		signmark.style.visibility = 'hidden';
+		signmark.style.width = "0px";
+		signmark.style.height = "0px";
+	};
+
+	// 注册文件拖动事件
+	droparea.addEventListener("dragenter", dragHandler);
+	droparea.addEventListener("dragleave", dragHandler);
+	droparea.addEventListener("dragover", dragHandler);
+	droparea.addEventListener("drop", dragHandler);
+
+	// 注册鼠标事件
+	drawarea.addEventListener('mousedown', function (evt) {
+		startx = evt.layerX;
+		starty = evt.layerY;
+		mouseDown = true;
+	});
+	drawarea.addEventListener('mousemove', function (evt) {
+		if(mouseDown){
+			endx = evt.layerX;
+			endy = evt.layerY;
+			drawSignArea(startx, starty, endx, endy);
+		}
+	});
+	drawarea.addEventListener('mouseup', function (evt) {
+		// 仅在按下鼠标时响应
+		if(mouseDown){
+			mouseDown = false;
+			generateCoord();
+			endx = evt.layerX;
+			endy = evt.layerY;
+		}
+
+		if((Math.abs(endx - startx) < 5) || (Math.abs(endy - starty) < 5)){
+			clearSign();
+			json = null;
+			elmcoord.value = '';
+		};
+	});
+
+	// 注册鼠标移动事件，处理往回拖
+	signmark.addEventListener('mousemove', function (evt) {
+		evt.stopPropagation();
+		if(mouseDown){
+			if(endx > startx)
+				endx = startx + evt.offsetX;
+			else
+				endx = startx - (evt.target.clientWidth - evt.offsetX);
+
+			if(endy > starty)
+				endy = starty + evt.offsetY;
+			else
+				endy = starty - (evt.target.clientHeight - evt.offsetY);
+			drawSignArea(startx, starty, endx, endy);
+		}
+	});
+</script>
+</html>
